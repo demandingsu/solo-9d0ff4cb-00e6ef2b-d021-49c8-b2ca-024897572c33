@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Path
+from fastapi import Depends, FastAPI, Path, Query
 from fastapi.responses import JSONResponse
 
-from . import services
+from . import reconciliation, services
 from .database import get_conn, init_db
 from .schemas import (
     BulkAttribution,
@@ -16,6 +16,10 @@ from .schemas import (
     CorrectRequest,
     CorrectResponse,
     ErrorResponse,
+    ReconAccountListResponse,
+    ReconChildrenResponse,
+    ReconGenerateResponse,
+    ReconWholeResponse,
     SupplyResponse,
 )
 
@@ -42,6 +46,11 @@ app = FastAPI(
 
 @app.exception_handler(services.AppError)
 async def app_error_handler(request, exc: services.AppError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(reconciliation.ReconError)
+async def recon_error_handler(request, exc: reconciliation.ReconError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
@@ -126,6 +135,56 @@ def post_correction(month: str = MonthParam, payload: CorrectRequest = ..., conn
 )
 def delete_month(month: str = MonthParam, conn=Depends(conn_dep)):
     return services.reset_month(conn, month)
+
+
+# ---------------------------------------------------------------- 对账
+@app.post(
+    "/months/{month}/reconciliation",
+    tags=["对账"],
+    summary="生成月度对账号：返回三表整表指纹（同一已提交快照）",
+    response_model=ReconGenerateResponse,
+    responses={422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+)
+def post_reconciliation(month: str = MonthParam, conn=Depends(conn_dep)):
+    return reconciliation.generate_reconciliation(conn, month)
+
+
+@app.get(
+    "/months/{month}/reconciliation",
+    tags=["对账"],
+    summary="列出某月已生成且仍可查的对账号",
+    response_model=ReconAccountListResponse,
+)
+def list_reconciliation(month: str = MonthParam, conn=Depends(conn_dep)):
+    return reconciliation.list_accounts(conn, month)
+
+
+@app.get(
+    "/reconciliation/{account_id}",
+    tags=["对账"],
+    summary="按对账号取三表整表指纹（level 0）",
+    response_model=ReconWholeResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def get_reconciliation_whole(account_id: str, conn=Depends(conn_dep)):
+    return reconciliation.get_whole(conn, account_id)
+
+
+@app.get(
+    "/reconciliation/{account_id}/tables/{table}/segments",
+    tags=["对账"],
+    summary="查某段下一级的 32 个子段指纹（空段标空，直接读已存子段）",
+    response_model=ReconChildrenResponse,
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def get_reconciliation_children(
+    account_id: str,
+    table: str,
+    lo: int = Query(..., ge=1, description="父段起始行号（闭区间，须按段宽对齐）"),
+    hi: int = Query(..., ge=1, description="父段结束行号（闭区间）"),
+    conn=Depends(conn_dep),
+):
+    return reconciliation.get_children(conn, account_id, table, lo, hi)
 
 
 @app.get("/health", tags=["管理"], summary="健康检查")

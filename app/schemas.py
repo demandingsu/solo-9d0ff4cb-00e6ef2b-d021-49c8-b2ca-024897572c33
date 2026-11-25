@@ -93,3 +93,67 @@ class CorrectResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# ---------------------------------------------------------------- 对账
+class ReconTableFingerprint(BaseModel):
+    table: Literal["work_hour", "dispatch", "attribution"]
+    whole_fingerprint: str = Field(description="整表指纹（level 0 段，sha256 十六进制）")
+    row_count: int = Field(description="快照内该表行数（派生信息，不进对账索引）")
+    range_lo: int
+    range_hi: int
+
+
+class ReconGenerateResponse(BaseModel):
+    account_id: str = Field(description="对账号，两端凭它交换并逐级查询")
+    month: str
+    fingerprint_version: str
+    fanout: int = Field(description="固定分段树叉数（32）")
+    levels: int = Field(description="分段树层数（6，level 0 整表 .. level 5 单行）")
+    row_id_min: int
+    row_id_max: int
+    tables: list[ReconTableFingerprint]
+
+
+class ReconSegment(BaseModel):
+    level: int
+    lo: int
+    hi: int
+    is_empty: bool = Field(description="true=空段（未落库，按固定网格补位的空哨兵）")
+    fingerprint: str
+
+
+class ReconWholeSegment(BaseModel):
+    table: Literal["work_hour", "dispatch", "attribution"]
+    level: int
+    lo: int
+    hi: int
+    is_empty: bool
+    fingerprint: str
+
+
+class ReconWholeResponse(BaseModel):
+    account_id: str
+    month: str
+    fingerprint_version: str
+    tables: list[ReconWholeSegment]
+
+
+class ReconChildrenResponse(BaseModel):
+    account_id: str
+    month: str
+    table: str
+    parent: dict
+    fingerprint_version: str
+    children: list[ReconSegment] = Field(description="父段下一级的 32 个固定子段，空段标空")
+
+
+class ReconAccountItem(BaseModel):
+    account_id: str
+    month: str
+    created_at: str
+
+
+class ReconAccountListResponse(BaseModel):
+    month: str
+    accounts: list[ReconAccountItem]

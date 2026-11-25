@@ -46,9 +46,32 @@ CREATE TABLE IF NOT EXISTS correction_audit (
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 对账索引：只存表名、行号区间与指纹（外加定位用的对账号/层级/空子段标记）。
+-- 不存任何源表内容，源表清空、服务重启后仍可按对账号逐级查询。
+-- 同一对账号、同一表、同一区间至多一条；叶子区间 width=1，其指纹即单行指纹。
+CREATE TABLE IF NOT EXISTS reconciliation_segment (
+    account_id  TEXT NOT NULL,
+    table_name  TEXT NOT NULL CHECK (table_name IN ('work_hour', 'dispatch', 'attribution')),
+    level       INTEGER NOT NULL,
+    lo          INTEGER NOT NULL,
+    hi          INTEGER NOT NULL,
+    is_empty    INTEGER NOT NULL DEFAULT 0,
+    fingerprint TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, table_name, level, lo, hi)
+);
+
+-- 对账号登记：对账号 -> 月份，保证“整轮不可查/可查”的原子切换。
+CREATE TABLE IF NOT EXISTS reconciliation_account (
+    account_id TEXT PRIMARY KEY,
+    month      TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_dispatch_month_wo     ON dispatch(month, work_order);
 CREATE INDEX IF NOT EXISTS idx_dispatch_month_proj   ON dispatch(month, project);
 CREATE INDEX IF NOT EXISTS idx_attribution_month_proj ON attribution(month, project);
+CREATE INDEX IF NOT EXISTS idx_recon_seg_account     ON reconciliation_segment(account_id, table_name, level, lo);
 """
 
 
